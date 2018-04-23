@@ -6,8 +6,10 @@ This is a simple Python script for downloading photos from friend or group chat.
 
 ## Requirements
 
-* Python 3 only (not tested on Python 2);
-* Installed module vk_api (https://github.com/python273/vk_api).
+* Python 3 only;
+* Installed dependencies: aiohttp, vk_api.
+
+  `pip install aiohttp, vk_api`
 
 ## Usage
 

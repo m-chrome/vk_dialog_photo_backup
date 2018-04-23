@@ -1,14 +1,15 @@
 from argparse import ArgumentParser
 from datetime import datetime
 from getpass import getpass
-from urllib import request, error
 from urllib.parse import urlsplit
+import asyncio
 import json
 import os
 import sys
 
 from vk_api import VkApi
 from vk_api import AuthError
+import aiohttp
 
 FIRST_NAME = "first_name"
 LAST_NAME = "last_name"
@@ -27,31 +28,29 @@ PHOTO_SIZES = ('photo_2560', 'photo_1280', 'photo_807', 'photo_604', 'photo_130'
 PROHIBITED_FN_CHARS = ('/', '\\', '|', '?', '{', '}', '=', '%', '&', '*', '<', '>', '$')
 
 
-class Photo:
-    def __init__(self, url, date):
-        self.__url = url
-        self.__date = date
-        self.is_downloaded = False
-        self.name = self.__make_name()
+async def download(session, photo, out_dir):
+    url = photo.get(URL)
+    date = photo.get(DATE)
+    url_path = urlsplit(url).path
+    url_name = url_path.split('/')[-1]
+    datetime_part = datetime.fromtimestamp(date).strftime("%Y%m%d_%H%M%S")
+    name = datetime_part + "_" + url_name
+    full_path = os.path.join(out_dir, name)
 
-    def __make_name(self):
-        url_path = urlsplit(url=self.__url).path
-        url_name = url_path.split('/')[-1]
-        datetime_part = datetime.fromtimestamp(self.__date).strftime("%Y%m%d_%H%M%S")
-        return datetime_part + "_" + url_name
+    async with session.get(url) as response:
+        with open(full_path, "wb") as file:
+            while True:
+                chunk = await response.content.read(1024)
+                if not chunk:
+                    break
+                file.write(chunk)
+        return await response.release()
 
-    def download(self, outdir):
-        full_path = os.path.join(outdir, self.name)
-        file = open(full_path, "wb")
-        print("Download photo from url:", self.__url)
-        try:
-            photo_bytes = request.urlopen(self.__url).read()
-            file.write(photo_bytes)
-            self.is_downloaded = True
-            print("Photo", self.name, "successfully downloaded" + '\n')
-        except error.URLError:
-            print("Problem with ", self.name + " download\n")
-        file.close()
+
+async def download_photos(loop, photos, out_dir):
+    async with aiohttp.ClientSession(loop=loop) as session:
+        tasks = [download(session, photo, out_dir) for photo in photos]
+        return await asyncio.wait(tasks)
 
 
 def get_args():
@@ -152,9 +151,12 @@ def main():
     photos = parse_photos(photos)
 
     print("Download photos")
-    for photo in photos:
-        ph_obj = Photo(photo.get(URL), photo.get(DATE))
-        ph_obj.download(photo_dir)
+    event_loop = asyncio.get_event_loop()
+
+    try:
+        event_loop.run_until_complete(download_photos(event_loop, photos, photo_dir))
+    finally:
+        event_loop.close()
 
     print("All {} photos were downloaded".format(len(photos)))
 
